@@ -13,12 +13,19 @@ export const run = async () => {
   );
   console.log("Loaded agent.");
 
-  const input =
-    "Who is Olivia Wilde's boyfriend?" +
-    " What is his current age raised to the 0.23 power?";
+  const input = `Who is Olivia Wilde's boyfriend? What is his current age raised to the 0.23 power?`;
+
   console.log(`Executing with input "${input}"...`);
 
   const result = await executor.call({ input });
 
   console.log(`Got output ${result.output}`);
+
+  console.log(
+    `Got intermediate steps ${JSON.stringify(
+      result.intermediateSteps,
+      null,
+      2
+    )}`
+  );
 };

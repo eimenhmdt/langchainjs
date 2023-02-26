@@ -2,6 +2,8 @@
 
 Language Models are often limited by the amount of text that you can pass to them. Therefore, it is neccessary to split them up into smaller chunks. LangChain provides several utilities for doing so.
 
+## RecursiveCharacterTextSplitter
+
 The recommended TextSplitter is the `RecursiveCharacterTextSplitter`. This will split documents recursively by different characters - starting with `"\n\n"`, then `"\n"`, then `" "`. This is nice because it will try to keep all the semantically relevant content in the same place for as long as possible.
 
 Important parameters to know here are `chunkSize` and `chunkOverlap`. `chunkSize` controls the max size (in terms of number of characters) of the final documents. `chunkOverlap` specifies how much overlap there should be between chunks. This is often helpful to make sure that the text isn't split weirdly. In the example below we set these values to be small (for illustration purposes), but in practice they default to `4000` and `200` respectively.
@@ -37,6 +39,8 @@ const docOutput = splitter.splitDocuments([
 ]);
 ```
 
+## CharacterTextSplitter
+
 Besides the `RecursiveCharacterTextSplitter`, there is also the more standard `CharacterTextSplitter`. This splits only on one type of character (defaults to `"\n\n"`). You can use it in the exact same way.
 
 ```typescript
@@ -49,5 +53,26 @@ const splitter = new CharacterTextSplitter({
   chunkSize: 7,
   chunkOverlap: 3,
 });
+const output = splitter.createDocuments([text]);
+```
+
+## TokenTextSplitter
+
+Finally, `TokenTextSplitter` splits a raw text string by first converting the text into BPE tokens, then split these tokens into chunks and convert the tokens within a single chunk back into text.
+
+To utilize the `TokenTextSplitter`, first install the accompanying required library: `npm install -S @dqbd/tiktoken`.
+
+```typescript
+import { Document } from "langchain/document";
+import { TokenTextSplitter } from "langchain/text_splitter";
+
+const text = "foo bar baz 123";
+
+const splitter = new TokenTextSplitter({
+  encodingName: "gpt2",
+  chunkSize: 10,
+  chunkOverlap: 0,
+});
+
 const output = splitter.createDocuments([text]);
 ```

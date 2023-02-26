@@ -4,11 +4,10 @@ import type {
   HierarchicalNSW as HierarchicalNSWT,
   SpaceName,
 } from "hnswlib-node";
-
 import { Embeddings } from "../embeddings/base";
-
-import { DocStore, SaveableVectorStore } from "./base";
+import { SaveableVectorStore } from "./base";
 import { Document } from "../document";
+import { InMemoryDocstore } from "../docstore";
 
 let HierarchicalNSW: typeof HierarchicalNSWT | null = null;
 
@@ -27,14 +26,14 @@ export interface HNSWLibArgs {
 export class HNSWLib extends SaveableVectorStore {
   index?: HierarchicalNSWT;
 
-  docstore: DocStore;
+  docstore: InMemoryDocstore;
 
   args: HNSWLibArgs;
 
   constructor(
     args: HNSWLibArgs,
     embeddings: Embeddings,
-    docstore: DocStore,
+    docstore: InMemoryDocstore,
     index?: HierarchicalNSWT
   ) {
     super(embeddings);
@@ -46,7 +45,10 @@ export class HNSWLib extends SaveableVectorStore {
 
   async addDocuments(documents: Document[]): Promise<void> {
     const texts = documents.map(({ pageContent }) => pageContent);
-    this.addVectors(await this.embeddings.embedDocuments(texts), documents);
+    return this.addVectors(
+      await this.embeddings.embedDocuments(texts),
+      documents
+    );
   }
 
   async addVectors(vectors: number[][], documents: Document[]) {
@@ -83,11 +85,12 @@ export class HNSWLib extends SaveableVectorStore {
     const capacity = this.index.getMaxElements();
     const needed = this.index.getCurrentCount() + vectors.length;
     if (needed > capacity) {
-      this.index.resizeIndex(needed - capacity);
+      this.index.resizeIndex(needed);
     }
+    const docstoreSize = this.docstore.count;
     for (let i = 0; i < vectors.length; i += 1) {
-      this.index.addPoint(vectors[i], i);
-      this.docstore[i] = documents[i];
+      this.index.addPoint(vectors[i], docstoreSize + i);
+      this.docstore.add({ [docstoreSize + i]: documents[i] });
     }
   }
 
@@ -97,13 +100,26 @@ export class HNSWLib extends SaveableVectorStore {
         "Vector store not initialised yet. Try calling `addTexts` first."
       );
     }
+    if (query.length !== this.args.numDimensions) {
+      throw new Error(
+        `Query vector must have the same length as the number of dimensions (${this.args.numDimensions})`
+      );
+    }
+    if (k > this.index.getCurrentCount()) {
+      const total = this.index.getCurrentCount();
+      console.warn(
+        `k (${k}) is greater than the number of elements in the index (${total}), setting k to ${total}`
+      );
+      // eslint-disable-next-line no-param-reassign
+      k = total;
+    }
     const result = this.index.searchKnn(query, k);
     return result.neighbors.map(
       (docIndex, resultIndex) =>
-        [this.docstore[docIndex], result.distances[resultIndex]] as [
-          Document,
-          number
-        ]
+        [
+          this.docstore.search(String(docIndex)),
+          result.distances[resultIndex],
+        ] as [Document, number]
     );
   }
 
@@ -122,7 +138,7 @@ export class HNSWLib extends SaveableVectorStore {
       ),
       await fs.writeFile(
         path.join(directory, "docstore.json"),
-        JSON.stringify(this.docstore)
+        JSON.stringify(Array.from(this.docstore._docs.entries()))
       ),
     ]);
   }
@@ -137,12 +153,13 @@ export class HNSWLib extends SaveableVectorStore {
       await fs.readFile(path.join(directory, "args.json"), "utf8")
     );
     const index = new HierarchicalNSW(args.space, args.numDimensions);
-    const [docstore] = await Promise.all([
+    const [docstoreFiles] = await Promise.all([
       fs
         .readFile(path.join(directory, "docstore.json"), "utf8")
         .then(JSON.parse),
       index.readIndex(path.join(directory, "hnswlib.index")),
     ]);
+    const docstore = new InMemoryDocstore(new Map(docstoreFiles));
 
     return new HNSWLib(args, embeddings, docstore, index);
   }
@@ -150,7 +167,8 @@ export class HNSWLib extends SaveableVectorStore {
   static async fromTexts(
     texts: string[],
     metadatas: object[],
-    embeddings: Embeddings
+    embeddings: Embeddings,
+    docstore: InMemoryDocstore = new InMemoryDocstore()
   ): Promise<HNSWLib> {
     const docs = [];
     for (let i = 0; i < texts.length; i += 1) {
@@ -160,12 +178,13 @@ export class HNSWLib extends SaveableVectorStore {
       });
       docs.push(newDoc);
     }
-    return HNSWLib.fromDocuments(docs, embeddings);
+    return HNSWLib.fromDocuments(docs, embeddings, docstore);
   }
 
   static async fromDocuments(
     docs: Document[],
-    embeddings: Embeddings
+    embeddings: Embeddings,
+    docstore: InMemoryDocstore = new InMemoryDocstore()
   ): Promise<HNSWLib> {
     if (HierarchicalNSW === null) {
       throw new Error(
@@ -175,7 +194,7 @@ export class HNSWLib extends SaveableVectorStore {
     const args: HNSWLibArgs = {
       space: "ip", // dot product
     };
-    const instance = new this(args, embeddings, {});
+    const instance = new this(args, embeddings, docstore);
     await instance.addDocuments(docs);
     return instance;
   }

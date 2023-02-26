@@ -4,6 +4,8 @@ import {
   StuffDocumentsChain,
   VectorDBQAChain,
   ChatVectorDBQAChain,
+  MapReduceDocumentsChain,
+  AnalyzeDocumentChain,
 } from "./index";
 import { BaseMemory } from "../memory";
 
@@ -17,6 +19,8 @@ const chainClasses = [
   StuffDocumentsChain,
   VectorDBQAChain,
   ChatVectorDBQAChain,
+  MapReduceDocumentsChain,
+  AnalyzeDocumentChain,
 ];
 
 export type SerializedBaseChain = ReturnType<
@@ -33,6 +37,10 @@ export interface ChainInputs {
 export abstract class BaseChain implements ChainInputs {
   memory?: BaseMemory;
 
+  constructor(memory?: BaseMemory) {
+    this.memory = memory;
+  }
+
   /**
    * Run the core logic of this chain and return the output
    */
@@ -48,6 +56,28 @@ export abstract class BaseChain implements ChainInputs {
    */
   abstract serialize(): SerializedBaseChain;
 
+  abstract get inputKeys(): string[];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async run(input: any): Promise<string> {
+    const isKeylessInput = this.inputKeys.length === 1;
+    if (!isKeylessInput) {
+      throw new Error(
+        `Chain ${this._chainType()} expects multiple inputs, cannot use 'run' `
+      );
+    }
+    const values = { [this.inputKeys[0]]: input };
+    const returnValues = await this.call(values);
+    const keys = Object.keys(returnValues);
+    if (keys.length === 1) {
+      const finalReturn = returnValues[keys[0]];
+      return finalReturn;
+    }
+    throw new Error(
+      "return values have multiple keys, `run` only supported when one key currently"
+    );
+  }
+
   /**
    * Run the core logic of this chain and add to output if desired.
    *
@@ -55,6 +85,7 @@ export abstract class BaseChain implements ChainInputs {
    */
   async call(values: ChainValues): Promise<ChainValues> {
     const fullValues = deepcopy(values);
+
     if (!(this.memory == null)) {
       const newValues = await this.memory.loadMemoryVariables(values);
       for (const [key, value] of Object.entries(newValues)) {
@@ -64,7 +95,7 @@ export abstract class BaseChain implements ChainInputs {
     // TODO(sean) add callback support
     const outputValues = this._call(fullValues);
     if (!(this.memory == null)) {
-      this.memory.saveContext(values, outputValues);
+      await this.memory.saveContext(values, outputValues);
     }
     return outputValues;
   }
@@ -72,8 +103,8 @@ export abstract class BaseChain implements ChainInputs {
   /**
    * Call the chain on all inputs in the list
    */
-  apply(inputs: ChainValues[]): ChainValues[] {
-    return inputs.map(this.call);
+  async apply(inputs: ChainValues[]): Promise<ChainValues> {
+    return Promise.all(inputs.map(async (i) => this.call(i)));
   }
 
   /**

@@ -1,10 +1,12 @@
 {
   "extends": "@tsconfig/recommended",
   "compilerOptions": {
-    "outDir": "dist",
+    "outDir": "./dist",
     "lib": [
       "ESNext",
+      "DOM"
     ],
+    "module": "nodenext",
     "sourceMap": true,
     "allowSyntheticDefaultImports": true,
     "baseUrl": "./",
@@ -14,11 +16,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "useDefineForClassFields": true,
-    "strictPropertyInitialization": false
+    "strictPropertyInitialization": false,
+    "noEmit": true
   },
-  "exclude": [
-    "node_modules/",
-  ],
   "include": [
     "*.ts"
   ]
